@@ -12,6 +12,7 @@ ranks high that the lawyer did not cite.
 from __future__ import annotations
 
 import random
+import shutil
 from pathlib import Path
 
 from fundstelle.corpus import Passage, norm_docs
@@ -95,9 +96,14 @@ def train(triples: list[tuple[str, str, str]], base: str, out: Path, epochs: int
         output_dir=str(out / "checkpoints"), num_train_epochs=epochs,
         per_device_train_batch_size=batch_size, learning_rate=lr, warmup_ratio=0.1,
         batch_sampler=BatchSamplers.NO_DUPLICATES,  # a norm twice in a batch is a false negative
-        logging_steps=20, save_strategy="no", report_to=[], use_cpu=True, seed=0,
+        logging_steps=20, save_strategy="steps", save_steps=100, save_total_limit=1,
+        report_to=[], use_cpu=True, seed=0,
     )  # fmt: skip
     loss = losses.MultipleNegativesRankingLoss(model)
-    SentenceTransformerTrainer(model=model, args=args, train_dataset=ds, loss=loss).train()
+    trainer = SentenceTransformerTrainer(model=model, args=args, train_dataset=ds, loss=loss)
+    # A CPU run takes over an hour; resume from the last checkpoint if it was interrupted.
+    resume = any((out / "checkpoints").glob("checkpoint-*"))
+    trainer.train(resume_from_checkpoint=resume or None)
     model.save(str(out))
+    shutil.rmtree(out / "checkpoints", ignore_errors=True)
     return out
