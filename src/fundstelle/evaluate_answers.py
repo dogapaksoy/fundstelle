@@ -5,7 +5,7 @@ answer. Measured per question:
 
 - **cites a lawyer's norm**: the answer cites at least one norm the lawyer cited. This
   is a lower bound on usefulness (lawyers cite a few norms, not every relevant one).
-- **sentences supported**: share of drafted sentences the cited passages entail (NLI).
+- **rules supported**: share of drafted points whose cited passage entails the rule (NLI).
 - **abstained**: nothing survived the check, the user gets the fallback.
 
 ``oracle`` mode puts the passages of the lawyer's norms first. It separates retrieval
@@ -91,6 +91,6 @@ def summary(name: str, rows: list[dict]) -> str:
 
 HEADER = (
     "| condition | questions | lawyer's norm shown | draft cites lawyer's norm | answer cites "
-    "lawyer's norm | sentences supported | abstained | s / answer |\n"
+    "lawyer's norm | rules supported | abstained | s / answer |\n"
     "|---|---|---|---|---|---|---|---|"
 )

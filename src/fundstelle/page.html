@@ -67,13 +67,16 @@ async function call(path) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || r.status);
     if (path === "/search") { $("out").innerHTML = passages(d.passages); return; }
-    const sents = d.sentences.map((s) => `<span class="${s.kept ? "" : "dropped"}"
-      title="Stützung durch den zitierten Text: ${s.support === null ? "–" : s.support.toFixed(2)}">${esc(s.text)}
-      <span class="cite">(${s.cites.map(esc).join("; ")})</span></span>`).join(" ");
+    const points = d.points.map((p) => `<div class="card ${p.kept ? "" : "dropped"}"
+      title="Stützung durch den Gesetzestext: ${p.support === null ? "–" : p.support.toFixed(2)}">
+      <span class="cite">${esc(p.cite)}</span>: ${esc(p.rule)}
+      <p class="meta">Einschätzung: ${esc(p.relevance)}</p></div>`).join("");
     const t = d.trace;
-    $("out").innerHTML = `<div class="card"><p>${esc(d.answer)}</p>
-      ${d.sentences.length ? `<details><summary class="meta">Entwurf und Prüfung (${t.kept} von ${t.drafted} Sätzen belegt)</summary><p>${sents}</p></details>` : ""}
-      <p class="meta">Suche ${t.retrieval_s} s · Modell ${t.llm_s} s · Prüfung ${t.check_s} s</p></div>
+    const kept = d.points.filter((p) => p.kept);
+    $("out").innerHTML = `${kept.length ? "" : `<div class="card">${esc(d.answer)}</div>`}
+      ${points}
+      <p class="meta">${t.kept} von ${t.drafted} Punkten vom Gesetzestext gestützt (durchgestrichen: verworfen) ·
+        Suche ${t.retrieval_s} s · Modell ${t.llm_s} s · Prüfung ${t.check_s} s</p>
       <h3>Gefundene Gesetzesstellen</h3>${passages(d.passages)}`;
   } catch (e) {
     $("out").innerHTML = `<p class="dropped">Fehler: ${esc(e.message)}</p>`;

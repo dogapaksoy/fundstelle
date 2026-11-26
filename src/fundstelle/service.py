@@ -118,15 +118,16 @@ def ask(q: Query) -> dict:
     return {
         "answer": a.text(),
         "abstained": a.abstained,
-        "sentences": [
+        "points": [
             {
-                "text": s.text,
-                "cites": [cite(c) for c in s.cites],
-                "support": s.support,
-                "kept": s in a.kept,
+                "cite": cite(p.cite),
+                "rule": p.rule,
+                "relevance": p.relevance,
+                "support": p.support,
+                "kept": p in a.kept,
             }
-            for s in a.draft
-        ],  # fmt: skip
+            for p in a.draft
+        ],
         "passages": [
             {"id": p.id, "cite": cite(p.id), "title": p.title, "text": p.text} for p, _ in hits
         ],  # fmt: skip
