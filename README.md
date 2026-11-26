@@ -139,9 +139,27 @@ The model is configurable: a local GGUF model (`FUNDSTELLE_LLM=llama:qwen3-4b`) 
 OpenAI-compatible server (`FUNDSTELLE_LLM=openai:<model>@<base url>`).
 
 ```bash
-docker build -t fundstelle .
-docker run -p 8000:8000 fundstelle    # then open http://localhost:8000
+docker build -t fundstelle .          # two stages, no apt; runtime image 2.2 GB
+docker run -p 8000:8000 \
+  -v $PWD/models/e5-small-gerlayqa:/models/e5 -e FUNDSTELLE_RETRIEVER=dense:/models/e5 \
+  fundstelle                          # then open http://localhost:8000
 ```
+
+**One request, end to end** (the container on 4 CPU cores, Qwen3-4B): *"Mein Vermieter
+will mir kündigen, weil seine Tochter in meine Wohnung ziehen soll. Ich wohne seit acht
+Jahren dort. Darf er das, und wie lange habe ich Zeit?"*
+
+- Retrieval (0.03 s) returns § 573c (notice periods), § 573 (landlord's notice), § 573a,
+  all on point.
+- The model drafts four points (160 s). One quotes § 573 Abs. 1 but cites § 573c Abs. 1;
+  the check rejects it (entailment 0.00). The three kept points restate their Absätze
+  correctly (0.99).
+- The *Einschätzung* of the kept points is weak: the model never says that the notice
+  period grows to nine months after eight years (§ 573c Abs. 1), and in the rejected point
+  it claimed that needing the flat for a daughter is no legitimate interest, which § 573
+  Abs. 2 Nr. 2 says it is. The check guarantees that what is attributed to a statute is
+  in the statute; it can't make a 4B model reason like a lawyer. A stronger model behind
+  `FUNDSTELLE_LLM=openai:...` is the obvious next step.
 
 ## Usage
 

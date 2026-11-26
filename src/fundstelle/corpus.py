@@ -75,15 +75,29 @@ def parse(xml: bytes | str, law: str) -> Iterator[Passage]:
             yield Passage(f"{law} {enbez}", law, enbez, title, " ".join(paras))
 
 
-def download(data: Path, laws: Iterable[str] = LAWS) -> Path:
-    """Fetch the XML of each law and write all passages to ``data/corpus.jsonl``."""
+def _fetch(url: str, attempts: int = 5) -> bytes:
+    """gesetze-im-internet.de drops connections now and then; retry with backoff."""
+    import time
     import urllib.request
 
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r:
+                return r.read()
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(2**attempt)
+    raise AssertionError("unreachable")
+
+
+def download(data: Path, laws: Iterable[str] = LAWS) -> Path:
+    """Fetch the XML of each law and write all passages to ``data/corpus.jsonl``."""
     data.mkdir(parents=True, exist_ok=True)
     out = data / "corpus.jsonl"
     with out.open("w", encoding="utf-8") as f:
         for law in laws:
-            raw = urllib.request.urlopen(SOURCE.format(LAWS[law]), timeout=120).read()
+            raw = _fetch(SOURCE.format(LAWS[law]))
             with zipfile.ZipFile(io.BytesIO(raw)) as z:
                 (name,) = [n for n in z.namelist() if n.endswith(".xml")]
                 for p in parse(z.read(name), law):
