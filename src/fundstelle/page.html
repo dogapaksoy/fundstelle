@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fundstelle</title>
+<style>
+  :root { --bg: #fafaf8; --fg: #1b1b1b; --muted: #666; --line: #ddd; --accent: #1a4fa0;
+          --drop: #a33; --card: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161616; --fg: #e8e8e8; --muted: #9a9a9a; --line: #333; --accent: #7aa7ff;
+            --drop: #e07a7a; --card: #1f1f1f; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 130px; padding: 10px;
+             font: inherit; border: 1px solid var(--line); border-radius: 6px;
+             background: var(--card); color: var(--fg); }
+  .row { display: flex; gap: 8px; margin: 8px 0 24px; flex-wrap: wrap; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent);
+           background: var(--accent); color: #fff; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+          padding: 14px 16px; margin-bottom: 12px; }
+  .cite { color: var(--accent); font-weight: 600; }
+  .dropped { color: var(--drop); text-decoration: line-through; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  details summary { cursor: pointer; }
+  .note { color: var(--muted); font-size: .85rem; margin-top: 32px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>fundstelle</h1>
+  <p class="sub">Rechtsfragen zu BGB, StGB und ZPO. Jeder Satz der Antwort nennt seine
+    Gesetzesstelle und wird gegen deren Text geprüft.</p>
+  <textarea id="q" placeholder="z. B.: Mein Vermieter will mir kündigen, weil seine Tochter in die Wohnung ziehen soll. Darf er das?"></textarea>
+  <div class="row">
+    <button id="ask">Antwort</button>
+    <button id="search" class="secondary">Nur Gesetzesstellen suchen</button>
+  </div>
+  <div id="out"></div>
+  <p class="note">Keine Rechtsberatung. Die Antwort gibt Gesetzestext wieder und wendet ihn
+    nicht verbindlich auf Ihren Fall an.</p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+function passages(ps) {
+  return ps.map((p) => `<details class="card"><summary><span class="cite">${esc(p.cite)}</span>
+    ${esc(p.title)}</summary><p>${esc(p.text)}</p></details>`).join("");
+}
+
+async function call(path) {
+  const question = $("q").value.trim();
+  if (question.length < 10) return;
+  for (const b of document.querySelectorAll("button")) b.disabled = true;
+  $("out").innerHTML = `<p class="meta">${path === "/ask" ? "Suche und prüfe … (auf einer CPU bis zu einer Minute)" : "Suche …"}</p>`;
+  try {
+    const r = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                                 body: JSON.stringify({question})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || r.status);
+    if (path === "/search") { $("out").innerHTML = passages(d.passages); return; }
+    const sents = d.sentences.map((s) => `<span class="${s.kept ? "" : "dropped"}"
+      title="Stützung durch den zitierten Text: ${s.support === null ? "–" : s.support.toFixed(2)}">${esc(s.text)}
+      <span class="cite">(${s.cites.map(esc).join("; ")})</span></span>`).join(" ");
+    const t = d.trace;
+    $("out").innerHTML = `<div class="card"><p>${esc(d.answer)}</p>
+      ${d.sentences.length ? `<details><summary class="meta">Entwurf und Prüfung (${t.kept} von ${t.drafted} Sätzen belegt)</summary><p>${sents}</p></details>` : ""}
+      <p class="meta">Suche ${t.retrieval_s} s · Modell ${t.llm_s} s · Prüfung ${t.check_s} s</p></div>
+      <h3>Gefundene Gesetzesstellen</h3>${passages(d.passages)}`;
+  } catch (e) {
+    $("out").innerHTML = `<p class="dropped">Fehler: ${esc(e.message)}</p>`;
+  } finally {
+    for (const b of document.querySelectorAll("button")) b.disabled = false;
+  }
+}
+$("ask").onclick = () => call("/ask");
+$("search").onclick = () => call("/search");
+</script>
+</body>
+</html>

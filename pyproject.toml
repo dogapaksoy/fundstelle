@@ -22,10 +22,18 @@ retrieval = [
     "sentence-transformers>=3.0",
     "huggingface_hub>=0.23",
 ]
-dev = ["pytest>=8", "ruff>=0.5"]
+answer = [
+    "belegt[nli] @ git+https://github.com/dogapaksoy/belegt.git",
+    "llama-cpp-python>=0.3",
+]
+serve = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8", "ruff>=0.5", "fastapi>=0.110", "httpx"]
 
 [project.scripts]
 fundstelle = "fundstelle.cli:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fundstelle"]

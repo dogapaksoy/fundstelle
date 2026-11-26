@@ -71,6 +71,19 @@ def cmd_train(args: argparse.Namespace) -> None:
     (args.out / "fundstelle.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
+def cmd_download(args: argparse.Namespace) -> None:
+    print(download(args.data))
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    import os
+
+    import uvicorn
+
+    os.environ.setdefault("FUNDSTELLE_DATA", str(args.data))
+    uvicorn.run("fundstelle.service:app", host=args.host, port=args.port)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="fundstelle")
     ap.add_argument("--data", type=Path, default=Path("data"))
@@ -89,6 +102,14 @@ def main(argv: list[str] | None = None) -> None:
     t.add_argument("--batch-size", type=int, default=16)
     t.add_argument("--max-length", type=int, default=192)
     t.set_defaults(func=cmd_train)
+
+    d = sub.add_parser("download", help="fetch BGB, StGB and ZPO from gesetze-im-internet.de")
+    d.set_defaults(func=cmd_download)
+
+    s = sub.add_parser("serve", help="run the HTTP service (see fundstelle.service)")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8000)
+    s.set_defaults(func=cmd_serve)
 
     args = ap.parse_args(argv)
     args.func(args)
