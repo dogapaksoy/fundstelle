@@ -61,7 +61,7 @@ separate retrieval errors from generation errors.
 | oracle: lawyer's norms shown first | 100% | 62% | 92% | 15% | 166 |
 
 - **Retrieval is the bottleneck.** When the lawyer's norm is among the passages, the model
-  cites it in most cases (25 of 32 points with retrieval, 62% with the oracle). Without
+  cites it in most cases (10 of 13 questions with retrieval, 62% with the oracle). Without
   it, it can't.
 - **The model says when nothing fits.** Every "no answer" (10–15%) is the model returning
   no points because none of the passages matched the question, not the check rejecting
