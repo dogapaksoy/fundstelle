@@ -71,6 +71,29 @@ def cmd_train(args: argparse.Namespace) -> None:
     (args.out / "fundstelle.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
+def cmd_answers(args: argparse.Namespace) -> None:
+    from fundstelle.answer import Answerer, NLISupport
+    from fundstelle.evaluate_answers import HEADER, run, summary
+    from fundstelle.llm import LlamaCppBackend
+
+    passages = _corpus(args.data)
+    test = splits(args.data, {p.norm_id for p in passages})[args.split]
+    per_law = {"BGB": args.n // 2, "StGB": args.n // 4, "ZPO": args.n - args.n // 2 - args.n // 4}
+    questions = [q for law, k in per_law.items() for q in [x for x in test if x.law == law][:k]]
+    retriever = build(args.retriever, passages, args.data)
+    rankings = retriever.search([q.text for q in questions], 50)
+    answerer = Answerer(LlamaCppBackend(args.model), NLISupport())
+    lines = [HEADER]
+    for oracle in (False, True):
+        name = f"{args.model}, {'lawyer norms shown first' if oracle else args.retriever}"
+        tag = "oracle" if oracle else "retrieved"
+        out = args.out / f"{args.split}-{args.model}-{tag}.jsonl"
+        rows = run(name, answerer, questions, rankings, passages, out, k=args.k, oracle=oracle)
+        lines.append(summary(name, rows))
+    (args.out / f"{args.split}-summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print("\n".join(lines))
+
+
 def cmd_download(args: argparse.Namespace) -> None:
     print(download(args.data))
 
@@ -102,6 +125,15 @@ def main(argv: list[str] | None = None) -> None:
     t.add_argument("--batch-size", type=int, default=16)
     t.add_argument("--max-length", type=int, default=192)
     t.set_defaults(func=cmd_train)
+
+    a = sub.add_parser("answers", help="end-to-end cited answers, with and without oracle norms")
+    a.add_argument("--retriever", default="dense:models/e5-small-gerlayqa")
+    a.add_argument("--model", default="qwen3-4b")
+    a.add_argument("--split", choices=["dev", "test"], default="test")
+    a.add_argument("-n", type=int, default=60, help="questions: half BGB, a quarter StGB, ZPO")
+    a.add_argument("-k", type=int, default=8, help="passages shown to the model")
+    a.add_argument("--out", type=Path, default=Path("results/answers"))
+    a.set_defaults(func=cmd_answers)
 
     d = sub.add_parser("download", help="fetch BGB, StGB and ZPO from gesetze-im-internet.de")
     d.set_defaults(func=cmd_download)
