@@ -49,3 +49,17 @@ def test_schema_only_allows_shown_citations_and_bad_json_abstains():
     assert s["properties"]["points"]["items"]["properties"]["cite"]["enum"] == ["BGB § 1"]
     assert Answerer(ScriptedBackend(["not json"]))("?", P).abstained
     assert cite("StGB § 242 Abs. 2") == "§ 242 Abs. 2 StGB"
+
+
+def test_perturbations_flip_meaning_and_numbers():
+    from fundstelle.perturb import change_number, negate, run
+
+    assert negate("Der Vermieter kann nur kündigen, wenn er ein Interesse hat.") == (
+        "Der Vermieter kann nicht kündigen, wenn er ein Interesse hat."
+    )
+    assert negate("Der Käufer muss nicht zahlen.") == "Der Käufer muss zahlen."
+    assert change_number("Die Frist beträgt zwei Wochen.") == "Die Frist beträgt vier Wochen."
+    kept = {"cite": "BGB § 573 Abs. 1", "rule": "Er muss ein berechtigtes Interesse haben."}
+    row = {"draft": [{"cite": p.id} for p in P], "kept": [kept]}
+    counts = run([row], {p.id: p for p in P}, fake_support)["counts"]
+    assert counts["wrong passage"] == [1, 1]  # § 1 does not support it

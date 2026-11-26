@@ -94,6 +94,21 @@ def cmd_answers(args: argparse.Namespace) -> None:
     print("\n".join(lines))
 
 
+def cmd_perturb(args: argparse.Namespace) -> None:
+    from fundstelle.answer import NLISupport
+    from fundstelle.perturb import run
+
+    by_id = {p.id: p for p in _corpus(args.data)}
+    rows = [json.loads(x) for f in args.answers for x in f.read_text(encoding="utf-8").splitlines()]
+    result = run(rows, by_id, NLISupport())
+    lines = ["| rule | tested | rejected by the check |", "|---|---|---|"]
+    for kind, (n, rejected) in result["counts"].items():
+        lines.append(f"| {kind} | {n} | {rejected / n:.0%} |" if n else f"| {kind} | 0 | – |")
+    examples = json.dumps(result["examples"], ensure_ascii=False, indent=1)
+    args.out.write_text("\n".join(lines) + "\n\n" + examples + "\n", encoding="utf-8")
+    print("\n".join(lines))
+
+
 def cmd_download(args: argparse.Namespace) -> None:
     print(download(args.data))
 
@@ -134,6 +149,11 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("-k", type=int, default=8, help="passages shown to the model")
     a.add_argument("--out", type=Path, default=Path("results/answers"))
     a.set_defaults(func=cmd_answers)
+
+    pt = sub.add_parser("perturb", help="break accepted rules; how many does the check catch?")
+    pt.add_argument("answers", nargs="+", type=Path, help="jsonl files from `answers`")
+    pt.add_argument("--out", type=Path, default=Path("results/answers/perturbations.md"))
+    pt.set_defaults(func=cmd_perturb)
 
     d = sub.add_parser("download", help="fetch BGB, StGB and ZPO from gesetze-im-internet.de")
     d.set_defaults(func=cmd_download)
