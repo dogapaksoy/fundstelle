@@ -29,8 +29,9 @@ online legal advice forum, each answered by a lawyer who cited the norms they re
 | multilingual-e5-small | 4.6% | 12.1% | 17.3% | 23.2% | 0.086 | 0.05 |
 | bge-m3 (568M) | 6.1% | 16.0% | 23.3% | 29.8% | 0.114 | 0.43 |
 | BM25 + bge-m3 (rank fusion) | 5.3% | 15.1% | 21.8% | 29.0% | 0.106 | 0.44 |
-| **e5-small, fine-tuned on GerLayQA** | **11.3%** | **28.0%** | **37.8%** | **45.8%** | **0.197** | 0.05 |
-| BM25 + fine-tuned e5-small | 10.3% | 21.9% | 31.1% | 41.2% | 0.168 | 0.04 |
+| e5-small, fine-tuned on 10k GerLayQA questions | 11.3% | 28.0% | 37.8% | 45.8% | 0.197 | 0.05 |
+| BM25 + fine-tuned e5-small (10k) | 10.3% | 21.9% | 31.1% | 41.2% | 0.168 | 0.04 |
+| **e5-small, fine-tuned on all 22.6k training questions** | **14.7%** | **31.0%** | **41.9%** | **51.3%** | **0.230** | 0.04 |
 
 - **The task is hard for off-the-shelf retrieval.** Questions are ~1,100 characters of
   story; BM25 finds the lawyer's norm in the top 10 for 13% of them, a 568M multilingual
@@ -39,9 +40,13 @@ online legal advice forum, each answered by a lawyer who cited the norms they re
   hit@10 (17.3% → 37.8%)** and beats bge-m3, a model five times its size, by 14.5 points
   (95% bootstrap CI 11.6–17.5) at a ninth of the latency. Training took 85 minutes on
   4 CPU cores.
+- **More training questions keep helping.** Training on all 22.6k questions instead of
+  10k (3 h instead of 85 min) adds 4.1 points of hit@10 (95% CI 2.2–6.1) and 3.4 points of
+  hit@1; StGB gains most (42.5% → 50.0%). The answer evaluation below still uses the 10k
+  model.
 - **Rank fusion with BM25 hurts the fine-tuned model** (37.8% → 31.1%): once the
   embeddings know the domain, BM25 mostly adds noise from shared story words.
-- **ZPO stays weak** (18% vs. 43% for BGB and StGB). It has the fewest training
+- **ZPO stays weak** (20.5% vs. 46% for BGB and 50% for StGB with the full model). It has the fewest training
   questions (~1,300 of 23,000); civil procedure questions also tend to cite general
   procedural norms that match many stories.
 
@@ -184,8 +189,8 @@ Jahren dort. Darf er das, und wie lange habe ich Zeit?"*
 pip install "fundstelle[retrieval,answer,serve] @ git+https://github.com/dogapaksoy/fundstelle.git"
 fundstelle download                       # statutes from gesetze-im-internet.de
 fundstelle eval --split test bm25 dense:BAAI/bge-m3
-fundstelle train                          # fine-tune e5-small (~1.5 h on 4 cores)
-fundstelle eval --split test dense:models/e5-small-gerlayqa
+fundstelle train --questions 30000 --out models/e5-small-gerlayqa-full   # ~3 h on 4 cores
+fundstelle eval --split test dense:models/e5-small-gerlayqa-full
 fundstelle answers -n 40                  # end-to-end answers with Qwen3-4B
 fundstelle serve
 ```

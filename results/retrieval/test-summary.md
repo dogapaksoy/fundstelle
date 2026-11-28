@@ -6,3 +6,4 @@
 | bm25+dense:models/e5-small-gerlayqa | 10.3% | 21.9% | 31.1% | 41.2% | 24.9% | 0.168 | 0.04 s/q |
 | dense:BAAI/bge-m3 | 6.1% | 16.0% | 23.3% | 29.8% | 18.5% | 0.114 | 0.43 s/q |
 | bm25+dense:BAAI/bge-m3 | 5.3% | 15.1% | 21.8% | 29.0% | 16.8% | 0.106 | 0.44 s/q |
+| dense:models/e5-small-gerlayqa-full | 14.7% | 31.0% | 41.9% | 51.3% | 35.0% | 0.230 | 0.04 s/q |
