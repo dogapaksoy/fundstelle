@@ -8,7 +8,7 @@ Configuration (environment variables):
   ``openai:<model>@<base url>`` for any OpenAI-compatible server (key in
   ``OPENAI_API_KEY``). Unset: ``/ask`` is disabled and only search works.
 - ``FUNDSTELLE_NORMS``: show the model the top N retrieved norms with all their Absätze
-  (default 4); ``0`` shows only the retrieved Absätze
+  (default 0: only the retrieved Absätze; showing whole norms did not help, see README)
 - ``FUNDSTELLE_NLI``: ``0`` to skip the per-sentence check (not recommended)
 
 Every request is logged as one JSON line with its timings, so latency and abstention
@@ -109,7 +109,7 @@ def ask(q: Query) -> dict:
         hits = _search(q.question, q.k)
         t1 = time.perf_counter()
         shown = [p for p, _ in hits]
-        norms = int(os.environ.get("FUNDSTELLE_NORMS", "4"))
+        norms = int(os.environ.get("FUNDSTELLE_NORMS", "0"))
         if norms:  # show the retrieved norms whole, not only the retrieved Absätze
             shown = whole_norms(shown, STATE["by_norm"], norms)
         a = STATE["answerer"](q.question, shown)

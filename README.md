@@ -55,14 +55,21 @@ are often also relevant. All per-question rankings are in
 the fine-tuned retriever. *Oracle* puts the passages of the lawyer's norms first, to
 separate retrieval errors from generation errors.
 
-| condition | lawyer's norm shown | answer cites lawyer's norm | rules the check accepts | no answer | s / answer |
-|---|---|---|---|---|---|
-| retrieved passages | 32% | 25% | 97% | 10% | 145 |
-| oracle: lawyer's norms shown first | 100% | 62% | 92% | 15% | 166 |
+| condition | lawyer's norm shown | answer cites lawyer's norm | rules NLI accepts | accepted rules flagged | no answer | s / answer |
+|---|---|---|---|---|---|---|
+| top 8 Absätze (default) | 32% | 25% | 97% | 8% | 10% | 145 |
+| top 4 norms, all their Absätze | 28% | 20% | 91% | 16% | 12% | 186 |
+| oracle: lawyer's norms shown first | 100% | 62% | 92% | 17% | 15% | 166 |
 
 - **Retrieval is the bottleneck.** When the lawyer's norm is among the passages, the model
   cites it in most cases (10 of 13 questions with retrieval, 62% with the oracle). Without
   it, it can't.
+- **Showing whole norms did not help.** The worked example below suggested it: the
+  model saw § 573 Abs. 1 but not Abs. 2 Nr. 2, the Absatz that makes a landlord's own need
+  a legitimate reason. Showing the top 4 norms with all their Absätze covers fewer
+  distinct norms than 8 Absätze (the lawyer's norm is shown for 28% instead of 32%), the
+  model simplifies more in longer context (16% of rules flagged instead of 8%), and each
+  answer takes 40 s longer. The default stays at Absätze.
 - **The model says when nothing fits.** Every "no answer" (10–15%) is the model returning
   no points because none of the passages matched the question, not the check rejecting
   everything.
@@ -76,14 +83,21 @@ again ([`fundstelle perturb`](src/fundstelle/perturb.py)):
 | a number changed ("zwei Wochen" → "vier Wochen") | 33 | 100% |
 | correct rule, cited to another passage shown | 255 | 91% |
 
-**What the check misses.** A hand audit of 20 accepted rules
-([`results/answers/audit.md`](results/answers/audit.md)) found 15 correct, 4 simplified (a
+**What NLI misses, and the qualifier check.** A hand audit of 20 accepted rules
+([`results/answers/audit.md`](results/answers/audit.md)) found 14 correct, 5 simplified (a
 condition dropped: "Die Veränderung von amtlichen Ausweisen ist strafbar" without "zur
 Täuschung im Rechtsverkehr"), and 1 wrong: for § 637 BGB the model wrote that the customer
 may fix a defect *if the contractor refuses*, where the statute says *unless the
-contractor rightly refuses*, after a deadline. NLI scored it 0.99. Sentence-level NLI
-catches flipped and swapped statements, not subtly inverted conditions or dropped ones;
-that is why the passage text is always shown next to the rule.
+contractor rightly refuses*, after a deadline. NLI scored it 0.99: it catches flipped and
+swapped statements, not dropped or inverted conditions.
+
+So a second, simple check compares the rule with the statute sentence it restates: if
+the statute restricts with "nur", "soweit", "nicht", "es sei denn", "solange",
+"spätestens" ... and the rule doesn't, the point is shown with a warning ("Vereinfacht:
+Der Gesetzestext schränkt mit „soweit“ ein") instead of as a plain statement of law. On
+the audited sample it flags **5 of the 6 wrong or simplified rules** (including the
+inverted § 637 condition) and 2 of the 14 correct ones; it also found one dropped
+exception the first pass of the audit had missed. It flags 8% of all accepted rules.
 
 ## How it works
 
@@ -96,8 +110,10 @@ question ──► fine-tuned e5-small ──► top 8 Absätze ("BGB § 573 Abs
                                          │
                                          ▼  check, before anything is shown
                    NLI (multilingual, via belegt): does the cited Absatz entail `rule`?
+                   qualifiers: does `rule` drop a "nur", "soweit", "nicht" ... of the statute?
                                          │
                      no ──► point dropped │ yes ──► "§ 573 Abs. 2 BGB: <rule>
+                                         │          [Vereinfacht: ... ]  if a qualifier is missing
                                          │          Einschätzung: <relevance>"
                      nothing left ──► "Die gefundenen Gesetzesstellen beantworten
                                        Ihre Frage nicht sicher." + where to get advice
@@ -175,8 +191,9 @@ fundstelle serve
 
 ## Limitations
 
-- **The check is not a proof.** It catches nine in ten negated or misattributed rules,
-  but a dropped or inverted condition can pass (see the audit). The statute text is
+- **The checks are not a proof.** NLI catches nine in ten negated or misattributed
+  rules; the qualifier check flags most dropped conditions but is a word list, not
+  understanding (1 of 6 problems in the audit got through both). The statute text is
   always shown next to each rule.
 - **Not legal advice.** The assistant restates statutes and points to them. Whether a
   rule applies to a case depends on facts and case law it does not know; the
