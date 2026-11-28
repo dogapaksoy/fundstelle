@@ -149,21 +149,89 @@ class Dense:
 
 
 class Hybrid:
-    """Reciprocal rank fusion: score = sum over retrievers of 1 / (c + rank)."""
+    """Reciprocal rank fusion: score = sum over retrievers of w / (c + rank).
 
-    def __init__(self, retrievers: Sequence[Retriever], c: int = 60, depth: int = 100) -> None:
+    With ``passages`` the fusion happens per norm: two retrievers that rank different
+    Absätze of § 573 agree on § 573. Each norm is represented by its best-ranked Absatz.
+    """
+
+    def __init__(self, retrievers: Sequence[Retriever], c: int = 60, depth: int = 100,
+                 weights: Sequence[float] | None = None,
+                 passages: Sequence[Passage] | None = None) -> None:  # fmt: skip
         self.retrievers, self.c, self.depth = list(retrievers), c, depth
+        self.weights = list(weights) if weights else [1.0] * len(self.retrievers)
+        self.norm_of = [p.norm_id for p in passages] if passages else None
         self.name = "+".join(r.name for r in self.retrievers)
 
     def search(self, queries: Sequence[str], k: int) -> list[Ranking]:
         runs = [r.search(queries, self.depth) for r in self.retrievers]
         out = []
         for per_query in zip(*runs, strict=True):
-            fused: dict[int, float] = {}
-            for ranking in per_query:
-                for rank, (i, _) in enumerate(ranking):
-                    fused[i] = fused.get(i, 0.0) + 1 / (self.c + rank + 1)
-            out.append(sorted(fused.items(), key=lambda x: -x[1])[:k])
+            fused: dict[object, float] = {}
+            best: dict[object, tuple[int, int]] = {}  # key -> (rank, passage index)
+            for w, ranking in zip(self.weights, per_query, strict=True):
+                seen: set[object] = set()
+                for i, _ in ranking:
+                    key = self.norm_of[i] if self.norm_of else i
+                    if key in seen:
+                        continue
+                    rank = len(seen)
+                    seen.add(key)
+                    fused[key] = fused.get(key, 0.0) + w / (self.c + rank + 1)
+                    if key not in best or rank < best[key][0]:
+                        best[key] = (rank, i)
+            top = sorted(fused.items(), key=lambda x: -x[1])[:k]
+            out.append([(best[key][1], score) for key, score in top])
+        return out
+
+
+class Cases:
+    """Similar past questions vote for the norms their lawyers cited.
+
+    Legal problems repeat: noisy neighbours, deposits not returned, a dog that bit someone.
+    For a new question, the ``neighbours`` most similar training questions (by the same
+    query encoder) each add their similarity to every norm their lawyer cited. Only
+    training questions are used, never evaluation questions.
+    """
+
+    def __init__(
+        self,
+        questions: Sequence,
+        encoder: Dense,
+        passages: Sequence[Passage],
+        cache: Path | None = None,
+        neighbours: int = 30,
+        power: float = 1.0,
+    ) -> None:
+        self.name = f"cases:{encoder.name.split(':', 1)[1]}"
+        self.encoder, self.neighbours, self.power = encoder, neighbours, power
+        self.gold = [q.gold for q in questions]
+        first: dict[str, int] = {}
+        for i, p in enumerate(passages):
+            first.setdefault(p.norm_id, i)
+        self.first = first
+        texts = [encoder.q_prefix + q.text for q in questions]
+        digest = hashlib.sha1(("\n".join(texts) + encoder.name).encode()).hexdigest()[:10]
+        path = cache / f"cases-{digest}.npy" if cache else None
+        if path and path.exists():
+            self.emb = np.load(path)
+        else:
+            self.emb = encoder.encode(texts, show_progress=True)
+            if path:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                np.save(path, self.emb)
+
+    def search(self, queries: Sequence[str], k: int) -> list[Ranking]:
+        q = self.encoder.encode([self.encoder.q_prefix + x for x in queries])
+        out = []
+        for row in q @ self.emb.T:
+            votes: dict[str, float] = {}
+            for j, sim in _top(row, self.neighbours):
+                for norm in self.gold[j]:
+                    if norm in self.first:
+                        votes[norm] = votes.get(norm, 0.0) + max(sim, 0.0) ** self.power
+            top = sorted(votes.items(), key=lambda x: -x[1])[:k]
+            out.append([(self.first[n], v) for n, v in top])
         return out
 
 
