@@ -31,7 +31,11 @@ online legal advice forum, each answered by a lawyer who cited the norms they re
 | BM25 + bge-m3 (rank fusion) | 5.3% | 15.1% | 21.8% | 29.0% | 0.106 | 0.44 |
 | e5-small, fine-tuned on 10k GerLayQA questions | 11.3% | 28.0% | 37.8% | 45.8% | 0.197 | 0.05 |
 | BM25 + fine-tuned e5-small (10k) | 10.3% | 21.9% | 31.1% | 41.2% | 0.168 | 0.04 |
-| **e5-small, fine-tuned on all 22.6k training questions** | **14.7%** | **31.0%** | **41.9%** | **51.3%** | **0.230** | 0.04 |
+| e5-small, fine-tuned on all 22.6k training questions | 14.7% | 31.0% | 41.9% | 51.3% | 0.230 | 0.04 |
+| the same, indexing whole norms instead of Absätze | 15.5% | 34.2% | 43.6% | 53.0% | 0.248 | 0.04 |
+| *popularity: the 10 most cited norms, ignoring the question* | – | – | *16.9%* | – | – | – |
+| similar cases: 30 nearest training questions vote | 23.9% | 48.6% | 57.7% | 66.0% | 0.352 | 0.04 |
+| **fine-tuned e5-small + 2 × similar cases (fusion per norm)** | **25.6%** | **50.3%** | **60.6%** | **67.3%** | **0.373** | 0.08 |
 
 - **The task is hard for off-the-shelf retrieval.** Questions are ~1,100 characters of
   story; BM25 finds the lawyer's norm in the top 10 for 13% of them, a 568M multilingual
@@ -44,11 +48,22 @@ online legal advice forum, each answered by a lawyer who cited the norms they re
   10k (3 h instead of 85 min) adds 4.1 points of hit@10 (95% CI 2.2–6.1) and 3.4 points of
   hit@1; StGB gains most (42.5% → 50.0%). The answer evaluation below still uses the 10k
   model.
+- **Similar past questions are the strongest signal.** Legal problems repeat (noisy
+  neighbours, a deposit not returned, a dog that bit someone). Retrieving the 30 most
+  similar *training* questions with the same fine-tuned encoder and letting each vote for
+  the norms its lawyer cited reaches 57.7% hit@10 on its own; fused with direct
+  retrieval, **60.6% (+18.7 points over direct retrieval, 95% CI 15.8–21.7)**. It is not
+  just a popularity prior: always answering with the 10 most cited norms scores 16.9%,
+  and 33.2% even when told which law the question is about. BGB gains most (46% → 73%),
+  ZPO least (21% → 24%), because it has the fewest past cases. Settings (30 neighbours,
+  weight 2) were chosen on the 200 dev questions; the test set was run once.
+- **Indexing whole norms helps a little** (41.9% → 43.6%): the model was trained with whole
+  norms as targets, and Absätze without their neighbours lose context.
 - **Rank fusion with BM25 hurts the fine-tuned model** (37.8% → 31.1%): once the
   embeddings know the domain, BM25 mostly adds noise from shared story words.
-- **ZPO stays weak** (20.5% vs. 46% for BGB and 50% for StGB with the full model). It has the fewest training
-  questions (~1,300 of 23,000); civil procedure questions also tend to cite general
-  procedural norms that match many stories.
+- **ZPO stays weak** (24% with the best retriever vs. 73% for BGB and 62% for StGB). It
+  has the fewest training questions (~1,300 of 23,000); civil procedure questions also
+  tend to cite general procedural norms that match many stories.
 
 hit@10 is a lower bound: a lawyer cites one or two norms, and other norms in the top 10
 are often also relevant. All per-question rankings are in
@@ -108,7 +123,9 @@ accepted rules.
 ## How it works
 
 ```
-question ──► fine-tuned e5-small ──► top 8 Absätze ("BGB § 573 Abs. 2", title, text)
+question ──► fine-tuned e5-small ──┬─► nearest Absätze
+                                    └─► 30 most similar past questions ─► their lawyers' norms
+             fused per norm ──► top 8 Absätze ("BGB § 573 Abs. 2", title, text)
                                          │
                                          ▼
                    LLM (Qwen3-4B, local), JSON schema: up to 4 points
@@ -163,7 +180,8 @@ OpenAI-compatible server (`FUNDSTELLE_LLM=openai:<model>@<base url>`).
 ```bash
 docker build -t fundstelle .          # two stages, no apt; runtime image 2.2 GB
 docker run -p 8000:8000 \
-  -v $PWD/models/e5-small-gerlayqa:/models/e5 -e FUNDSTELLE_RETRIEVER=dense:/models/e5 \
+  -v $PWD/models/e5-small-gerlayqa-full:/models/e5 \
+  -e "FUNDSTELLE_RETRIEVER=dense:/models/e5+2*cases:/models/e5" \
   fundstelle                          # then open http://localhost:8000
 ```
 
@@ -190,7 +208,8 @@ pip install "fundstelle[retrieval,answer,serve] @ git+https://github.com/dogapak
 fundstelle download                       # statutes from gesetze-im-internet.de
 fundstelle eval --split test bm25 dense:BAAI/bge-m3
 fundstelle train --questions 30000 --out models/e5-small-gerlayqa-full   # ~3 h on 4 cores
-fundstelle eval --split test dense:models/e5-small-gerlayqa-full
+M=models/e5-small-gerlayqa-full
+fundstelle eval --split test "dense:$M+2*cases:$M"   # best: direct + similar cases
 fundstelle answers -n 40                  # end-to-end answers with Qwen3-4B
 fundstelle serve
 ```
