@@ -6,6 +6,8 @@ answer. Measured per question:
 - **cites a lawyer's norm**: the answer cites at least one norm the lawyer cited. This
   is a lower bound on usefulness (lawyers cite a few norms, not every relevant one).
 - **rules supported**: share of drafted points whose cited passage entails the rule (NLI).
+- **kept rules flagged**: share of accepted rules that drop a qualifier of the statute
+  ("nur", "soweit", "nicht", ...) and are shown with a warning.
 - **abstained**: nothing survived the check, the user gets the fallback.
 
 ``oracle`` mode puts the passages of the lawyer's norms first. It separates retrieval
@@ -20,18 +22,24 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from fundstelle.answer import Answerer
+from fundstelle.answer import Answerer, whole_norms
 from fundstelle.corpus import Passage
 from fundstelle.data import Question
 from fundstelle.retrieval import Ranking
 
 
 def context(q: Question, ranking: Ranking, passages: Sequence[Passage], k: int,
-            oracle: bool = False) -> list[Passage]:  # fmt: skip
+            oracle: bool = False, norms: int = 0) -> list[Passage]:  # fmt: skip
+    """The top ``k`` Absätze, or with ``norms`` the top norms with all their Absätze."""
     ranked = [passages[i] for i, _ in ranking]
     if oracle:
         gold = [p for p in passages if p.norm_id in q.gold][:k]
         ranked = gold + [p for p in ranked if p.norm_id not in q.gold]
+    if norms:
+        by_norm: dict[str, list[Passage]] = {}
+        for p in passages:
+            by_norm.setdefault(p.norm_id, []).append(p)
+        return whole_norms(ranked, by_norm, norms)
     return ranked[:k]
 
 
@@ -44,6 +52,7 @@ def run(
     out: Path,
     k: int = 8,
     oracle: bool = False,
+    norms: int = 0,
 ) -> list[dict]:
     """Answers each question once; rows already in ``out`` are reused (resumable)."""
     done = {}
@@ -56,7 +65,7 @@ def run(
             if q.id in done:
                 rows.append(done[q.id])
                 continue
-            shown = context(q, ranking, passages, k, oracle)
+            shown = context(q, ranking, passages, k, oracle, norms)
             a = answerer(q.text, shown)
             row = {
                 "id": q.id, "condition": name, "gold": list(q.gold),
@@ -84,13 +93,15 @@ def summary(name: str, rows: list[dict]) -> str:
         f"| {name}", str(len(rows)), pct(r["shown_gold"] for r in rows),
         pct(bool(set(r["cited_draft"]) & set(r["gold"])) for r in rows),
         pct(bool(set(r["cited"]) & set(r["gold"])) for r in rows),
-        pct(supported), pct(not r["kept"] for r in rows),
+        pct(supported),
+        pct(bool(k["missing"]) for r in rows for k in r["kept"] if "missing" in k),
+        pct(not r["kept"] for r in rows),
         f"{statistics.median(r['seconds'] for r in rows):.0f} |",
     ])  # fmt: skip
 
 
 HEADER = (
     "| condition | questions | lawyer's norm shown | draft cites lawyer's norm | answer cites "
-    "lawyer's norm | rules supported | abstained | s / answer |\n"
-    "|---|---|---|---|---|---|---|---|"
+    "lawyer's norm | rules supported | kept rules flagged | abstained | s / answer |\n"
+    "|---|---|---|---|---|---|---|---|---|"
 )

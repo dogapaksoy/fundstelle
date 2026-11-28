@@ -7,6 +7,8 @@ Configuration (environment variables):
 - ``FUNDSTELLE_LLM``: ``llama:qwen3-4b`` for a local GGUF model, or
   ``openai:<model>@<base url>`` for any OpenAI-compatible server (key in
   ``OPENAI_API_KEY``). Unset: ``/ask`` is disabled and only search works.
+- ``FUNDSTELLE_NORMS``: show the model the top N retrieved norms with all their Absätze
+  (default 4); ``0`` shows only the retrieved Absätze
 - ``FUNDSTELLE_NLI``: ``0`` to skip the per-sentence check (not recommended)
 
 Every request is logged as one JSON line with its timings, so latency and abstention
@@ -26,7 +28,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from fundstelle.answer import Answerer, NLISupport, cite
+from fundstelle.answer import Answerer, NLISupport, cite, whole_norms
 from fundstelle.corpus import load
 from fundstelle.llm import LlamaCppBackend, OpenAICompatibleBackend
 
@@ -61,6 +63,9 @@ async def lifespan(app: FastAPI):
     data = Path(os.environ.get("FUNDSTELLE_DATA", "data"))
     passages = load(data / "corpus.jsonl")
     STATE["passages"] = passages
+    STATE["by_norm"] = {}
+    for p in passages:
+        STATE["by_norm"].setdefault(p.norm_id, []).append(p)
     STATE["retriever"] = build(os.environ.get("FUNDSTELLE_RETRIEVER", "bm25"), passages, data)
     llm = _llm(os.environ.get("FUNDSTELLE_LLM"))
     support = NLISupport() if os.environ.get("FUNDSTELLE_NLI", "1") != "0" else None
@@ -103,7 +108,11 @@ def ask(q: Query) -> dict:
     try:
         hits = _search(q.question, q.k)
         t1 = time.perf_counter()
-        a = STATE["answerer"](q.question, [p for p, _ in hits])
+        shown = [p for p, _ in hits]
+        norms = int(os.environ.get("FUNDSTELLE_NORMS", "4"))
+        if norms:  # show the retrieved norms whole, not only the retrieved Absätze
+            shown = whole_norms(shown, STATE["by_norm"], norms)
+        a = STATE["answerer"](q.question, shown)
     except Exception:
         COUNTS["errors"] += 1
         raise
@@ -124,13 +133,14 @@ def ask(q: Query) -> dict:
                 "rule": p.rule,
                 "relevance": p.relevance,
                 "support": p.support,
+                "missing": p.missing,
                 "kept": p in a.kept,
             }
             for p in a.draft
         ],
         "passages": [
-            {"id": p.id, "cite": cite(p.id), "title": p.title, "text": p.text} for p, _ in hits
-        ],  # fmt: skip
+            {"id": p.id, "cite": cite(p.id), "title": p.title, "text": p.text} for p in shown
+        ],
         "trace": trace,
     }
 

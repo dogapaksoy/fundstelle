@@ -70,6 +70,7 @@ async function call(path) {
     const points = d.points.map((p) => `<div class="card ${p.kept ? "" : "dropped"}"
       title="Stützung durch den Gesetzestext: ${p.support === null ? "–" : p.support.toFixed(2)}">
       <span class="cite">${esc(p.cite)}</span>: ${esc(p.rule)}
+      ${p.missing && p.missing.length ? `<p class="dropped" style="text-decoration:none">Vereinfacht: Der Gesetzestext schränkt mit ${p.missing.map((m) => "„" + esc(m) + "“").join(", ")} ein. Bitte den Wortlaut prüfen.</p>` : ""}
       <p class="meta">Einschätzung: ${esc(p.relevance)}</p></div>`).join("");
     const t = d.trace;
     const kept = d.points.filter((p) => p.kept);

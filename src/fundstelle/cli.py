@@ -84,11 +84,14 @@ def cmd_answers(args: argparse.Namespace) -> None:
     rankings = retriever.search([q.text for q in questions], 50)
     answerer = Answerer(LlamaCppBackend(args.model), NLISupport())
     lines = [HEADER]
-    for oracle in (False, True):
-        name = f"{args.model}, {'lawyer norms shown first' if oracle else args.retriever}"
-        tag = "oracle" if oracle else "retrieved"
+    conditions = {"retrieved": (False, 0), "oracle": (True, 0), "norms": (False, args.norms)}
+    for tag in args.conditions.split(","):
+        oracle, norms = conditions[tag]
+        shown = f"top {norms} norms, all Absätze" if norms else f"top {args.k} Absätze"
+        name = f"{args.model}, {'lawyer norms shown first' if oracle else shown}"
         out = args.out / f"{args.split}-{args.model}-{tag}.jsonl"
-        rows = run(name, answerer, questions, rankings, passages, out, k=args.k, oracle=oracle)
+        rows = run(name, answerer, questions, rankings, passages, out, k=args.k, oracle=oracle,
+                   norms=norms)  # fmt: skip
         lines.append(summary(name, rows))
     (args.out / f"{args.split}-summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
@@ -147,6 +150,8 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("--split", choices=["dev", "test"], default="test")
     a.add_argument("-n", type=int, default=60, help="questions: half BGB, a quarter StGB, ZPO")
     a.add_argument("-k", type=int, default=8, help="passages shown to the model")
+    a.add_argument("--norms", type=int, default=4, help="norms shown in the `norms` condition")
+    a.add_argument("--conditions", default="retrieved,oracle,norms")
     a.add_argument("--out", type=Path, default=Path("results/answers"))
     a.set_defaults(func=cmd_answers)
 

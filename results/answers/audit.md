@@ -12,7 +12,7 @@ compared with the statute text by hand.
 | 4 | BGB § 919 Abs. 1 | correct | |
 | 5 | BGB § 1420 | correct | |
 | 6 | BGB § 1605 Abs. 1 | simplified | drops "soweit zur Feststellung eines Unterhaltsanspruchs erforderlich" |
-| 7 | BGB § 921 | correct | |
+| 7 | BGB § 921 | simplified | drops the exception "sofern nicht äußere Merkmale darauf hinweisen, dass die Einrichtung einem der Nachbarn allein gehört" (missed in the first pass; the qualifier check flagged it) |
 | 8 | BGB § 632 Abs. 2 | correct | verbatim |
 | 9 | ZPO § 796 Abs. 3 | correct | verbatim |
 | 10 | BGB § 637 Abs. 1 | **wrong** | "wenn der Unternehmer die Nacherfüllung verweigert": the statute says "wenn nicht der Unternehmer die Nacherfüllung zu Recht verweigert" and requires an expired deadline first. Entailment 0.99. |
@@ -26,4 +26,4 @@ compared with the statute text by hand.
 | 18 | StGB § 226 Abs. 2 | correct | |
 | 19 | BGB § 917 Abs. 1 | simplified | "bitten ... die Verbindung herzustellen" weakens "verlangen, dass sie die Benutzung dulden" |
 
-15 correct, 4 simplified (a condition dropped), 1 wrong.
+14 correct, 5 simplified (a condition dropped), 1 wrong.

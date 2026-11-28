@@ -8,7 +8,7 @@ from tests.test_answer import P, fake_support, point
 
 
 def client(responses):
-    service.STATE.update(passages=P, retriever=BM25(P),
+    service.STATE.update(passages=P, retriever=BM25(P), by_norm={p.norm_id: [p] for p in P},
                          answerer=Answerer(ScriptedBackend(responses), fake_support))  # fmt: skip
     return TestClient(service.app)  # no `with`: the lifespan (real models) is not run
 

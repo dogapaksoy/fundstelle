@@ -56,6 +56,7 @@ class Point:
     rule: str
     relevance: str
     support: float | None = None  # NLI: does the cited passage entail ``rule``?
+    missing: list[str] = field(default_factory=list)  # qualifiers of the statute it drops
 
     @property
     def supported(self) -> bool:
@@ -77,7 +78,14 @@ class Answer:
     def text(self) -> str:
         if self.abstained:
             return FALLBACK
-        return "\n".join(f"{cite(p.cite)}: {p.rule} Einschätzung: {p.relevance}" for p in self.kept)
+        lines = []
+        for p in self.kept:
+            warn = ""
+            if p.missing:
+                words = ", ".join(f"„{m}“" for m in p.missing)
+                warn = f" (Vereinfacht: Der Gesetzestext schränkt mit {words} ein.)"
+            lines.append(f"{cite(p.cite)}: {p.rule}{warn} Einschätzung: {p.relevance}")
+        return "\n".join(lines)
 
     def cited_norms(self, kept: bool = True) -> list[str]:
         points = self.kept if kept else self.draft
@@ -121,6 +129,46 @@ def prompt(question: str, passages: Sequence[Passage]) -> list[dict[str, str]]:
 
 _BRACKETED = re.compile(r"\s*\[[^\]]*\]")
 
+# Words that restrict or invert a rule. NLI tends to accept a restatement that drops them
+# ("Die Veränderung von Ausweisen ist strafbar" for "Wer zur Täuschung ... verändert");
+# the hand audit found that this is the main way wrong rules get through.
+QUALIFIERS = {
+    "nicht": r"\b(?:nicht|kein\w*|nie|weder)\b",
+    "nur": r"\b(?:nur|ausschließlich|lediglich)\b",
+    "soweit": r"\b(?:soweit|sofern|insoweit|insofern)\b",
+    "es sei denn": r"\bes sei denn\b|\bausgenommen\b|\baußer\b",
+    "solange": r"\bsolange\b",
+    "spätestens": r"\bspätestens\b",
+    "frühestens": r"\bfrühestens\b",
+    "unverzüglich": r"\bunverzüglich\b",
+}
+_SENT = re.compile(r"(?<=[.;:])\s+(?=[A-ZÄÖÜ(])")
+_TOKEN = re.compile(r"[a-zäöüß]{4,}")
+
+
+def missing_qualifiers(passage: str, rule: str) -> list[str]:
+    """Qualifiers in the statute sentence the rule restates that the rule leaves out."""
+    words = set(_TOKEN.findall(rule.lower()))
+    best = max(_SENT.split(passage), key=lambda s: len(words & set(_TOKEN.findall(s.lower()))))
+    return [name for name, pattern in QUALIFIERS.items()
+            if re.search(pattern, best, re.I) and not re.search(pattern, rule, re.I)]  # fmt: skip
+
+
+def whole_norms(ranked: Sequence[Passage], by_norm: dict[str, list[Passage]], norms: int = 4,
+                max_chars: int = 6000) -> list[Passage]:  # fmt: skip
+    """The top ``norms`` norms with all their Absätze, best norm first. A question about a
+    landlord's notice needs § 573 Abs. 2 Nr. 2 ("Eigenbedarf") even when retrieval ranked
+    Abs. 1 highest; showing single Absätze hid it."""
+    out: list[Passage] = []
+    size = 0
+    for nid in list(dict.fromkeys(p.norm_id for p in ranked))[:norms]:
+        for p in by_norm[nid]:
+            if out and size + len(p.text) > max_chars:
+                break
+            out.append(p)
+            size += len(p.text)
+    return out
+
 
 class Answerer:
     def __init__(self, llm: ChatBackend, support: Support | None = None) -> None:
@@ -145,6 +193,8 @@ class Answerer:
             for p in draft:
                 passage = by_id[p.cite]
                 p.support = self.support(f"{passage.title}: {passage.text}", p.rule)
+        for p in draft:
+            p.missing = missing_qualifiers(by_id[p.cite].text, p.rule)
         answer.kept = [p for p in draft if self.support is None or p.supported]
         return answer
 

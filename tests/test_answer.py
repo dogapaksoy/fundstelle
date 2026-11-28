@@ -31,9 +31,9 @@ def test_unsupported_rules_are_dropped_and_repeats_removed():
     a = Answerer(llm, fake_support)("Darf mein Vermieter kündigen?", P)
     assert len(a.draft) == 2
     assert [p.rule for p in a.kept] == ["Der Vermieter braucht ein berechtigtes Interesse."]
-    assert a.text() == (
-        "§ 573 Abs. 1 BGB: Der Vermieter braucht ein berechtigtes Interesse. "
-        "Einschätzung: Das betrifft Ihren Fall."
+    assert a.text() == (  # the statute says "nur", the rule doesn't: flagged, not dropped
+        "§ 573 Abs. 1 BGB: Der Vermieter braucht ein berechtigtes Interesse. (Vereinfacht: Der "
+        "Gesetzestext schränkt mit „nur“ ein.) Einschätzung: Das betrifft Ihren Fall."
     )
     assert a.cited_norms() == ["BGB § 573"]
 
@@ -63,3 +63,30 @@ def test_perturbations_flip_meaning_and_numbers():
     row = {"draft": [{"cite": p.id} for p in P], "kept": [kept]}
     counts = run([row], {p.id: p for p in P}, fake_support)["counts"]
     assert counts["wrong passage"] == [1, 1]  # § 1 does not support it
+
+
+def test_missing_qualifiers_finds_dropped_and_inverted_conditions():
+    from fundstelle.answer import missing_qualifiers
+
+    law = (
+        "(1) Der Besteller kann wegen eines Mangels des Werkes nach erfolglosem Ablauf einer "
+        "Frist den Mangel selbst beseitigen, wenn nicht der Unternehmer die Nacherfüllung zu "
+        "Recht verweigert. Satz 2 bleibt unberührt."
+    )
+    wrong = "Der Besteller kann den Mangel selbst beseitigen, wenn der Unternehmer verweigert."
+    assert missing_qualifiers(law, wrong) == ["nicht"]
+    right = (
+        "Der Besteller kann den Mangel beseitigen, wenn der Unternehmer nicht zu Recht verweigert."
+    )
+    assert missing_qualifiers(law, right) == []
+
+
+def test_whole_norms_adds_the_other_absaetze_of_retrieved_norms():
+    from fundstelle.answer import whole_norms
+
+    abs2 = Passage("BGB § 573 Abs. 2", "BGB", "§ 573", "Ordentliche Kündigung", "(2) Eigenbedarf")
+    by_norm = {"BGB § 573": [P[0], abs2], "BGB § 1": [P[1]]}
+    assert [p.id for p in whole_norms([P[0], P[1]], by_norm, norms=1)] == [
+        "BGB § 573 Abs. 1", "BGB § 573 Abs. 2"
+    ]  # fmt: skip
+    assert len(whole_norms([P[0], P[1]], by_norm, norms=2, max_chars=10)) == 1
