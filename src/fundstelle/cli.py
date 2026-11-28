@@ -18,24 +18,66 @@ def _corpus(data: Path):
     return load(path)
 
 
-def build(name: str, passages, data: Path):
-    """``bm25``, ``dense:<model>``, or several joined by ``+`` (reciprocal rank fusion)."""
-    from fundstelle.retrieval import BM25, Dense, Hybrid
+def _dense(model: str, docs, data: Path):
+    from fundstelle.retrieval import Dense
 
-    parts = []
+    prefixes = None
+    meta = Path(model) / "fundstelle.json"
+    if meta.exists():  # a model fine-tuned by `fundstelle train` records its prefixes
+        prefixes = tuple(json.loads(meta.read_text())["prefixes"])
+    return Dense(docs, model, cache=data / "cache", prefixes=prefixes)
+
+
+class _ByNorm:
+    """A retriever over whole-norm documents, reporting each norm's first Absatz."""
+
+    def __init__(self, inner, docs, passages) -> None:
+        first: dict[str, int] = {}
+        for i, p in enumerate(passages):
+            first.setdefault(p.norm_id, i)
+        self.inner, self.name = inner, inner.name.replace("dense:", "norms:")
+        self.ids = [first[d.id] for d in docs]
+
+    def search(self, queries, k):
+        return [[(self.ids[i], s) for i, s in r] for r in self.inner.search(queries, k)]
+
+
+def build(name: str, passages, data: Path):
+    """Retrievers joined by ``+`` are fused per norm (reciprocal rank fusion); a part can
+    carry a weight, ``2*cases:<model>``. Parts:
+
+    - ``bm25``
+    - ``dense:<model>``: embeddings of Absätze
+    - ``norms:<model>``: embeddings of whole norms (how ``fundstelle train`` trains)
+    - ``cases:<model>``: the 30 most similar training questions vote for their cited norms
+    """
+    from fundstelle.corpus import norm_docs
+    from fundstelle.retrieval import BM25, Cases, Hybrid
+
+    parts, weights = [], []
     for part in name.split("+"):
-        if part == "bm25":
+        weight, _, part = part.rpartition("*")
+        weights.append(float(weight) if weight else 1.0)
+        kind, _, model = part.partition(":")
+        if kind == "bm25":
             parts.append(BM25(passages))
-        elif part.startswith("dense:"):
-            model = part.removeprefix("dense:")
-            prefixes = None
-            meta = Path(model) / "fundstelle.json"
-            if meta.exists():  # a model fine-tuned by `fundstelle train` records its prefixes
-                prefixes = tuple(json.loads(meta.read_text())["prefixes"])
-            parts.append(Dense(passages, model, cache=data / "cache", prefixes=prefixes))
+        elif kind == "dense":
+            parts.append(_dense(model, passages, data))
+        elif kind == "norms":
+            docs = norm_docs(passages)
+            parts.append(_ByNorm(_dense(model, docs, data), docs, passages))
+        elif kind == "cases":
+            from fundstelle.train import training_questions
+
+            norm_ids = {p.norm_id for p in passages}
+            held = [q for qs in splits(data, norm_ids).values() for q in qs]
+            questions = training_questions(data, held, norm_ids)
+            parts.append(Cases(questions, _dense(model, passages, data), passages, data / "cache"))
         else:
             raise ValueError(f"unknown retriever {part!r}")
-    return parts[0] if len(parts) == 1 else Hybrid(parts)
+    if len(parts) == 1:
+        return parts[0]
+    return Hybrid(parts, weights=weights, passages=passages)
 
 
 def cmd_eval(args: argparse.Namespace) -> None:
@@ -53,7 +95,17 @@ def cmd_eval(args: argparse.Namespace) -> None:
         rows = run(name, rankings, questions, passages, args.out / f"{args.split}-{safe}.jsonl")
         lines.append(score(name, rows).row() + f" {per_q:.2f} s/q |")
         print(lines[-1], flush=True)
-    (args.out / f"{args.split}-summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path = args.out / f"{args.split}-summary.md"
+    # keep rows of retrievers evaluated earlier; replace those evaluated again
+    names = {line.split(" | ")[0] for line in lines[1:]}
+    if path.exists():
+        old = [
+            x
+            for x in path.read_text(encoding="utf-8").splitlines()[2:]
+            if x.split(" | ")[0] not in names
+        ]
+        lines = lines[:1] + old + lines[1:]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def cmd_train(args: argparse.Namespace) -> None:
