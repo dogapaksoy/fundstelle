@@ -97,7 +97,8 @@ the statute restricts with "nur", "soweit", "nicht", "es sei denn", "solange",
 Der Gesetzestext schränkt mit „soweit“ ein") instead of as a plain statement of law. On
 the audited sample it flags **5 of the 6 wrong or simplified rules** (including the
 inverted § 637 condition) and 2 of the 14 correct ones; it also found one dropped
-exception the first pass of the audit had missed. It flags 8% of all accepted rules.
+exception the first pass of the audit had missed. In the default setup it flags 8% of
+accepted rules.
 
 ## How it works
 
